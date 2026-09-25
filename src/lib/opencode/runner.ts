@@ -147,7 +147,7 @@ export async function runOnce(params: RunParams, env: NodeJS.ProcessEnv = proces
       resolve({ ...reduced, error });
     };
 
-    const child: ChildProcess = spawn(bin, args, { shell: false, stdio: ["pipe", "pipe", "pipe"] });
+    const child: ChildProcess = spawn(bin, args, { shell: false, stdio: ["pipe", "pipe", "pipe"], env });
 
     timer = setTimeout(() => {
       timedOut = true;

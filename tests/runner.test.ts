@@ -1,6 +1,73 @@
-import { describe, it, expect } from "vitest";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+import type { ChildProcess } from "node:child_process";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { spawn } from "node:child_process";
 import { reduceEvents, runOnce } from "../src/lib/opencode/runner.js";
 import type { RunParams, RunResult } from "../src/lib/opencode/runner.js";
+
+vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
+
+const spawnMock = vi.mocked(spawn);
+
+function mockSpawnClose(): void {
+  spawnMock.mockImplementation(() => {
+    const child = new EventEmitter() as ChildProcess;
+    const stdin = new PassThrough();
+    Object.assign(child, { stdin, stdout: new PassThrough(), stderr: new PassThrough(), exitCode: 0 });
+    queueMicrotask(() => child.emit("close", 0));
+    return child;
+  });
+}
+
+describe("runOnce spawn environment", () => {
+  beforeEach(() => spawnMock.mockReset());
+
+  it("passes a caller-supplied API key to spawn without putting it in the result error", async () => {
+    mockSpawnClose();
+    const env = { OPENCODE_API_KEY: "t" };
+
+    const result = await runOnce({ model: "provider/model", prompt: "hello", timeoutMs: 1000 }, env);
+
+    expect(spawnMock).toHaveBeenCalledWith("opencode", ["run", "--format", "json", "-m", "provider/model"], {
+      shell: false,
+      stdio: ["pipe", "pipe", "pipe"],
+      env,
+    });
+    expect(result.error).toBeNull();
+  });
+
+  it("passes an environment without an API key when auth is not supplied", async () => {
+    mockSpawnClose();
+
+    await runOnce({ model: "provider/model", prompt: "hello", timeoutMs: 1000 }, {});
+
+    expect(spawnMock).toHaveBeenCalledWith("opencode", ["run", "--format", "json", "-m", "provider/model"], {
+      shell: false,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: {},
+    });
+  });
+
+  it("keeps the supplied API key out of errors derived from stderr", async () => {
+    spawnMock.mockImplementation(() => {
+      const child = new EventEmitter() as ChildProcess;
+      const stderr = new PassThrough();
+      Object.assign(child, { stdin: new PassThrough(), stdout: new PassThrough(), stderr, exitCode: 1 });
+      queueMicrotask(() => {
+        stderr.end("upstream failure");
+        child.emit("close", 1);
+      });
+      return child;
+    });
+    const env = { OPENCODE_API_KEY: "unique-secret-token" };
+
+    const result = await runOnce({ model: "provider/model", prompt: "hello", timeoutMs: 1000 }, env);
+
+    expect(result.error).toBe("upstream failure");
+    expect(result.error).not.toContain(env.OPENCODE_API_KEY);
+  });
+});
 
 describe("reduceEvents", () => {
   it("concatenates text events and maps the real opencode token payload", () => {
