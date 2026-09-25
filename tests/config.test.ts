@@ -1,49 +1,68 @@
 import { describe, it, expect } from "vitest";
+import type { AuthContext } from "../src/lib/opencode/auth.js";
+import type { CatalogEntry } from "../src/lib/opencode/models.js";
 import {
-  getFreeModels,
-  resolveOpencodeBin,
   getTimeoutMs,
   listModels,
-  resolveModel,
   ModelNotFoundError,
+  resolveModel,
+  resolveOpencodeBin,
+  visibleModels,
 } from "../src/config/index.js";
 
-describe("config module (P2)", () => {
-  it("resolveModel accepts both the short id and the canonical form", () => {
-    expect(resolveModel("mimo-v2.6-flash-free")).toBe("opencode/mimo-v2.6-flash-free");
-    expect(resolveModel("opencode/mimo-v2.6-flash-free")).toBe("opencode/mimo-v2.6-flash-free");
+const entries: CatalogEntry[] = [
+  { canonical: "opencode/mimo-v2.6-flash-free", provider: "opencode", id: "mimo-v2.6-flash-free" },
+  { canonical: "opencode/space-bunny-free", provider: "opencode", id: "space-bunny-free" },
+  { canonical: "deepseek/deepseek-flash", provider: "deepseek", id: "deepseek-flash" },
+];
+
+const noAuth: AuthContext = { enabled: false, token: null };
+const withAuth: AuthContext = { enabled: true, token: "key" };
+
+describe("config module", () => {
+  it("shows only free ids without auth", () => {
+    expect(visibleModels(entries, noAuth)).toEqual(entries.slice(0, 2));
   });
 
-  it("resolveModel rejects unknown models", () => {
-    expect(() => resolveModel("gpt-4")).toThrow(ModelNotFoundError);
-    expect(() => resolveModel("unknown/unknown-model")).toThrow(ModelNotFoundError);
+  it("shows every catalog entry with auth", () => {
+    expect(visibleModels(entries, withAuth)).toEqual(entries);
   });
 
-  it("resolveModel honors a FREE_MODELS override", () => {
-    expect(resolveModel("d", { FREE_MODELS: "a/b, c/d" })).toBe("c/d");
-    expect(() => resolveModel("mimo-v2.6-flash-free", { FREE_MODELS: "a/b, c/d" })).toThrow(ModelNotFoundError);
+  it("lists model ids and providers in catalog order", () => {
+    expect(listModels(withAuth, entries)).toEqual({
+      object: "list",
+      data: [
+        { id: "mimo-v2.6-flash-free", object: "model", owned_by: "opencode" },
+        { id: "space-bunny-free", object: "model", owned_by: "opencode" },
+        { id: "deepseek-flash", object: "model", owned_by: "deepseek" },
+      ],
+    });
   });
 
-  it("listModels returns an OpenAI-style list with derived id/owned_by", () => {
-    const models = listModels();
-    expect(models.object).toBe("list");
-    expect(models.data.some((m) => m.id === "deepseek-flash" && m.owned_by === "deepseek")).toBe(true);
-    expect(models.data.every((m) => m.object === "model")).toBe(true);
+  it("resolves a visible short id to its canonical id", () => {
+    expect(resolveModel("mimo-v2.6-flash-free", noAuth, entries)).toBe("opencode/mimo-v2.6-flash-free");
   });
 
-  it("getFreeModels honors the env override and trims entries", () => {
-    expect(getFreeModels({ FREE_MODELS: "a/b, c/d" })).toEqual(["a/b", "c/d"]);
-    expect(getFreeModels({ FREE_MODELS: "  " })).toContain("deepseek/deepseek-flash");
+  it("resolves a visible canonical id", () => {
+    expect(resolveModel("opencode/mimo-v2.6-flash-free", noAuth, entries)).toBe("opencode/mimo-v2.6-flash-free");
   });
 
-  it("getTimeoutMs applies the default and falls back on invalid values", () => {
+  it("rejects a model outside the visible catalog", () => {
+    expect(() => resolveModel("gpt-4", withAuth, entries)).toThrow(ModelNotFoundError);
+  });
+
+  it("rejects every id when the catalog is empty", () => {
+    expect(() => resolveModel("mimo-v2.6-flash-free", withAuth, [])).toThrow(ModelNotFoundError);
+  });
+
+  it("keeps getTimeoutMs default and fallback behavior", () => {
     expect(getTimeoutMs({})).toBe(120000);
     expect(getTimeoutMs({ OPENCODE_TIMEOUT_MS: "0" })).toBe(120000);
     expect(getTimeoutMs({ OPENCODE_TIMEOUT_MS: "abc" })).toBe(120000);
     expect(getTimeoutMs({ OPENCODE_TIMEOUT_MS: "9999" })).toBe(9999);
   });
 
-  it("resolveOpencodeBin defaults to opencode and respects the override", () => {
+  it("keeps resolveOpencodeBin default and override behavior", () => {
     expect(resolveOpencodeBin({})).toBe("opencode");
     expect(resolveOpencodeBin({ OPENCODE_BIN: "mybin" })).toBe("mybin");
   });

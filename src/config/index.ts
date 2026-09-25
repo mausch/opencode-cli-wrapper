@@ -1,15 +1,5 @@
-// PHASE P2 — configuration: binary resolution, free-model allowlist, model resolution.
-
-const BUILTIN_FREE: readonly string[] = [
-  "opencode/mimo-v2.6-flash-free",
-  "opencode/space-bunny-free",
-  "opencode/nemotron-3-ultra-free",
-  "opencode/nemotron-3.5-lightning-free",
-  "opencode/ling-3.0-flash-fin-free",
-  "opencode/muse-spark-1.3-contributor-free",
-  "opencode-go/qwen3.8-flash",
-  "deepseek/deepseek-flash",
-];
+import type { AuthContext } from "../lib/opencode/auth.js";
+import type { CatalogEntry } from "../lib/opencode/models.js";
 
 export class ModelNotFoundError extends Error {
   override name = "ModelNotFoundError";
@@ -18,18 +8,6 @@ export class ModelNotFoundError extends Error {
     super(message);
     Object.setPrototypeOf(this, ModelNotFoundError.prototype);
   }
-}
-
-export function getFreeModels(env: NodeJS.ProcessEnv = process.env): string[] {
-  const raw = env.FREE_MODELS;
-  if (typeof raw === "string" && raw.trim().length > 0) {
-    const valid = raw
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0 && entry.split("/").length === 2);
-    if (valid.length > 0) return valid;
-  }
-  return [...BUILTIN_FREE];
 }
 
 export function resolveOpencodeBin(env: NodeJS.ProcessEnv = process.env): string {
@@ -47,28 +25,29 @@ export function getTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
   return 120_000;
 }
 
-function splitCanonical(canonical: string): { provider: string; id: string } {
-  const idx = canonical.indexOf("/");
-  return { provider: canonical.slice(0, idx), id: canonical.slice(idx + 1) };
+export function visibleModels(entries: CatalogEntry[], auth: AuthContext): CatalogEntry[] {
+  return auth.enabled ? entries : entries.filter((entry) => entry.id.endsWith("-free"));
 }
 
-export function listModels(env: NodeJS.ProcessEnv = process.env): {
+export function listModels(
+  auth: AuthContext,
+  entries: CatalogEntry[],
+): {
   object: "list";
   data: Array<{ id: string; object: "model"; owned_by: string }>;
 } {
   return {
     object: "list",
-    data: getFreeModels(env).map((canonical) => {
-      const { provider, id } = splitCanonical(canonical);
-      return { id, object: "model" as const, owned_by: provider };
-    }),
+    data: visibleModels(entries, auth).map((entry) => ({
+      id: entry.id,
+      object: "model" as const,
+      owned_by: entry.provider,
+    })),
   };
 }
 
-export function resolveModel(id: string, env: NodeJS.ProcessEnv = process.env): string {
-  for (const canonical of getFreeModels(env)) {
-    if (canonical === id) return canonical;
-    if (splitCanonical(canonical).id === id) return canonical;
-  }
-  throw new ModelNotFoundError(`Model '${id}' not found. Only free models are allowed.`);
+export function resolveModel(id: string, auth: AuthContext, entries: CatalogEntry[]): string {
+  const model = visibleModels(entries, auth).find((entry) => entry.canonical === id || entry.id === id);
+  if (model) return model.canonical;
+  throw new ModelNotFoundError(`Model '${id}' not found in the visible model catalog.`);
 }
