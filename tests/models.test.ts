@@ -42,6 +42,21 @@ function mockSpawnError(message: string): void {
   });
 }
 
+function mockSpawnHang(): void {
+  spawnMock.mockImplementation(() => {
+    const child = new EventEmitter() as ChildProcess;
+    Object.assign(child, {
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: null,
+      exitCode: null,
+      killed: false,
+      kill: vi.fn(() => true),
+    });
+    return child;
+  });
+}
+
 describe("parseModelsOutput", () => {
   it("drops blanks and malformed lines, maps valid ids, deduplicates, and sorts canonically", () => {
     const entries = parseModelsOutput(FIXTURE_MODELS_STDOUT);
@@ -101,6 +116,32 @@ describe("getCatalog", () => {
     mockSpawnError("missing binary");
 
     await expect(getCatalog({})).rejects.toBeInstanceOf(CatalogError);
+  });
+
+  it("rejects a cold catalog when the CLI never settles before its timeout", async () => {
+    vi.useFakeTimers();
+    mockSpawnHang();
+
+    const catalog = getCatalog({ OPENCODE_MODELS_TIMEOUT_MS: "50" });
+    const result = expect(catalog).rejects.toBeInstanceOf(CatalogError);
+    await vi.advanceTimersByTimeAsync(50);
+
+    await result;
+  });
+
+  it("returns the stale catalog when a refresh CLI never settles before its timeout", async () => {
+    vi.useFakeTimers();
+    mockSpawnOutput(FIXTURE_MODELS_STDOUT);
+    const env = { OPENCODE_MODELS_TTL_MS: "1", OPENCODE_MODELS_TIMEOUT_MS: "50" };
+    const warmCatalog = await getCatalog(env);
+    vi.advanceTimersByTime(1);
+    mockSpawnHang();
+
+    const catalog = getCatalog(env);
+    const result = expect(catalog).resolves.toEqual(warmCatalog);
+    await vi.advanceTimersByTimeAsync(50);
+
+    await result;
   });
 
   it("forces a fresh process after the cache is reset", async () => {

@@ -14,6 +14,7 @@ interface CatalogCache {
 }
 
 const DEFAULT_TTL_MS = 300_000;
+const DEFAULT_MODELS_TIMEOUT_MS = 30_000;
 
 let catalogCache: CatalogCache | null = null;
 let refreshPromise: Promise<CatalogEntry[]> | null = null;
@@ -36,6 +37,15 @@ export function getModelsTtlMs(env: NodeJS.ProcessEnv = process.env): number {
   return DEFAULT_TTL_MS;
 }
 
+export function getModelsTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const value = env.OPENCODE_MODELS_TIMEOUT_MS;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isInteger(parsed) && parsed > 0) return parsed;
+  }
+  return DEFAULT_MODELS_TIMEOUT_MS;
+}
+
 export function parseModelsOutput(stdout: string): CatalogEntry[] {
   const entries = new Map<string, CatalogEntry>();
   for (const line of stdout.split("\n")) {
@@ -54,9 +64,11 @@ function readCatalog(bin: string, env: NodeJS.ProcessEnv): Promise<CatalogEntry[
   return new Promise((resolve, reject) => {
     let stdout = "";
     let settled = false;
+    let timeout: NodeJS.Timeout | undefined;
     const fail = (): void => {
       if (settled) return;
       settled = true;
+      if (timeout) clearTimeout(timeout);
       reject(new CatalogError("Unable to read model catalog"));
     };
     const child: ChildProcess = spawn(bin, ["models"], {
@@ -69,6 +81,7 @@ function readCatalog(bin: string, env: NodeJS.ProcessEnv): Promise<CatalogEntry[
     });
     child.on("error", () => fail());
     child.on("close", (code) => {
+      if (timeout) clearTimeout(timeout);
       if (settled) return;
       if (code !== 0) {
         fail();
@@ -77,6 +90,10 @@ function readCatalog(bin: string, env: NodeJS.ProcessEnv): Promise<CatalogEntry[
       settled = true;
       resolve(parseModelsOutput(stdout));
     });
+    timeout = setTimeout(() => {
+      if (!child.killed) child.kill("SIGKILL");
+      fail();
+    }, getModelsTimeoutMs(env));
   });
 }
 
