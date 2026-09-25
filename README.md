@@ -1,7 +1,7 @@
 # OpenCode OpenAI-Compatible API
 
-An OpenAI-compatible HTTP API (`/v1/models`, `/v1/chat/completions`, SSE) that proxies the
-**free models of the OpenCode CLI**. Each request is executed by spawning:
+An OpenAI-compatible HTTP API (`/v1/models`, `/v1/chat/completions`, SSE) that proxies models
+reported by the OpenCode CLI. Each chat request is executed by spawning:
 
 ```
 opencode run --format json -m <provider/model>
@@ -58,15 +58,18 @@ npm run dev        # or: npm run build && npm start
 |---|---|---|
 | `OPENCODE_BIN` | `opencode` | Path/command of the OpenCode binary |
 | `OPENCODE_TIMEOUT_MS` | `120000` | Per-request timeout for a single `opencode run` |
+| `OPENCODE_MODELS_TTL_MS` | `300000` | How long to cache the discovered model catalog |
+| `OPENCODE_MODELS_TIMEOUT_MS` | `30000` | Timeout for the `opencode models` catalog command |
 | `PORT` | `3000` | HTTP port |
 | `HOST` | `0.0.0.0` | HTTP bind address |
-| `FREE_MODELS` | built-in allowlist | Comma-separated `provider/model` override |
-
-The built-in free-model allowlist lives in `src/config/index.ts`.
 
 ## Usage
 
 ### List models
+
+`GET /v1/models` runs `opencode models` and discovers the available catalog. Without an
+`Authorization` header, the API returns only model ids ending in `-free`. When the request
+includes an `Authorization` header, it returns all models reported by the CLI.
 
 ```bash
 curl -s http://localhost:3000/v1/models
@@ -74,6 +77,15 @@ curl -s http://localhost:3000/v1/models
 
 ```json
 { "object": "list", "data": [{ "id": "mimo-v2.6-flash-free", "object": "model", "owned_by": "opencode" }] }
+```
+
+For authenticated requests, the API passes the header value to the spawned `opencode` process
+as `OPENCODE_API_KEY`. It strips a leading `Bearer ` prefix and adds the key without changing
+the host's `auth.json`.
+
+```bash
+curl -s http://localhost:3000/v1/models \
+  -H 'Authorization: Bearer your-api-key'
 ```
 
 ### Chat completion
@@ -123,7 +135,7 @@ const completion = await client.chat.completions.create({
 | Situation | Status | `error.type` / `error.code` |
 |---|---|---|
 | Invalid body | `400` | `invalid_request_error` |
-| Model not in the free allowlist | `404` | `server_error` / `opencode_error` |
+| Model not in the visible model catalog | `404` | `server_error` / `opencode_error` |
 | Upstream/model error | `500` | `server_error` / `opencode_error` |
 
 ## Known limitations (by design)
@@ -134,8 +146,8 @@ const completion = await client.chat.completions.create({
   `messages[]` history is embedded into one prompt on every request.
 - **`temperature` / `max_tokens` are soft-anchored** into the prompt (the CLI exposes no such
   flags), so they act as hints, not guarantees.
-- **Free-model availability may change.** The allowlist is curated in the wrapper; re-validate
-  against `models.dev` before relying on a given model.
+- **Model availability may change.** The API discovers models from `opencode models` and limits
+  unauthenticated requests to ids ending in `-free`.
 - **No authentication.** Bind to a trusted network or add your own auth proxy.
 - **Docker needs the host's OpenCode credentials.** `docker compose` mounts your host OpenCode
   config/cache/auth (read-only) and keeps writable state in named volumes. If the host has never
@@ -155,7 +167,7 @@ npm run build       # emits dist/
 
 ```
 src/
-  config/index.ts              # binary resolution, free-model allowlist, listModels/resolveModel
+  config/index.ts              # binary resolution, catalog filtering, listModels/resolveModel
   lib/opencode/runner.ts       # spawn + NDJSON event reducer -> RunResult
   lib/opencode/compose.ts      # messages[] -> single prompt (prompt-embed)
   lib/openai-format/index.ts   # buildCompletion / SSE / toOpenAIErrorBody
