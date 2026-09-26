@@ -22,9 +22,13 @@ Run the API in a container and keep using the models and workflows you already h
 
 ## Quick start
 
-Run the published image. Your host OpenCode files are shared with the container through
-read-only mounts, while writable state stays in Docker volumes, so your host setup is never
-modified.
+Set a local wrapper key in `.env` before starting the published image. Generate a strong value
+for `API_KEY` and keep it secret. The local `.env` file is ignored by Git and should not be
+committed or shared. Your host OpenCode files are shared with the container through read-only
+mounts, while writable state stays in Docker volumes, so your host setup is never modified.
+
+For Docker Compose, set `API_KEY` in the local `.env` file before running `docker compose up`.
+For `docker run`, export `API_KEY` from that file in your shell and pass it with `-e API_KEY`.
 
 ```bash
 docker run --rm \
@@ -35,6 +39,7 @@ docker run --rm \
   -v "$HOME/.config/opencode:/home/node/.config/opencode:ro" \
   -v "$HOME/.cache/opencode:/home/node/.cache/opencode:ro" \
   -v "$HOME/.local/share/opencode/auth.json:/home/node/.local/share/opencode/auth.json:ro" \
+  -e API_KEY \
   ghcr.io/medeiroshudson/opencode-cli-wrapper:latest
 ```
 
@@ -44,10 +49,16 @@ still works, but model requests fail upstream.
 
 ## Usage
 
+Every request to the wrapper must include `Authorization: Bearer ${API_KEY}`, where `API_KEY` is
+the local wrapper key you configured above. The separate `x-opencode-key` header is optional and
+passes an upstream OpenCode credential for a chat request; it never authenticates access to the
+wrapper. This includes `/health` and `/models.dev.json`.
+
 List available models:
 
 ```bash
-curl http://localhost:3000/v1/models
+curl http://localhost:3000/v1/models \
+  -H "Authorization: Bearer ${API_KEY}"
 ```
 
 ```json
@@ -71,9 +82,9 @@ the vLLM-compatible `max_model_len` (both represent the context limit),
 ### Metadata for opencode-models-discovery
 
 `GET /models.dev.json` returns the full catalog as a flat models.dev-schema object keyed by each
-bare model id. It is public and does not require Authorization. Configure
-[`opencode-models-discovery`](https://github.com/yuhp/opencode-models-discovery) with either
-enricher format:
+bare model id. Like every wrapper endpoint, it requires `Authorization: Bearer ${API_KEY}`.
+Configure [`opencode-models-discovery`](https://github.com/yuhp/opencode-models-discovery) with
+either enricher format:
 
 ```json
 "provider": {
@@ -86,7 +97,9 @@ enricher format:
 ```
 
 The vLLM format reads `max_model_len` from `/v1/models`; it does not use `modelInfoEndpoint`.
-For models.dev, use the separate metadata endpoint:
+For models.dev, use the separate metadata endpoint. The client must support sending a custom
+`Authorization: Bearer ${API_KEY}` header when requesting it. Configure that header according to
+the client's own documentation; this example does not specify plugin header configuration syntax.
 
 ```json
 "provider": {
@@ -102,10 +115,14 @@ For models.dev, use the separate metadata endpoint:
 }
 ```
 
+If your client version cannot attach custom headers to metadata requests, it cannot access this
+protected endpoint directly. The endpoint is not public.
+
 Send a chat completion:
 
 ```bash
 curl http://localhost:3000/v1/chat/completions \
+  -H "Authorization: Bearer ${API_KEY}" \
   -H 'content-type: application/json' \
   -d '{"model":"mimo-v2.6-flash-free","messages":[{"role":"user","content":"Say hello"}]}'
 ```
@@ -117,14 +134,20 @@ curl http://localhost:3000/v1/chat/completions \
 }
 ```
 
-Use the OpenAI SDK by pointing its `baseURL` at the local API:
+Use the OpenAI SDK by pointing its `baseURL` at the local API and setting `apiKey` to the wrapper
+key. The SDK sends this as the ingress Bearer credential. To pass a separate upstream OpenCode
+credential for chat requests, add `x-opencode-key` with `defaultHeaders`:
 
 ```ts
 import OpenAI from "openai";
 
 const client = new OpenAI({
   baseURL: "http://localhost:3000/v1",
-  apiKey: "not-needed-for-free-models",
+  apiKey: process.env.API_KEY!,
+  // Add this only when sending a separate upstream OpenCode credential.
+  ...(process.env.OPENCODE_API_KEY && {
+    defaultHeaders: { "x-opencode-key": process.env.OPENCODE_API_KEY },
+  }),
 });
 
 const response = await client.chat.completions.create({
@@ -137,14 +160,22 @@ console.log(response.choices[0]?.message.content);
 
 ## Configuration
 
+`API_KEY` is the required wrapper ingress credential. Set it to a locally generated secret in
+your ignored `.env` file; requests must send it as `Authorization: Bearer <API_KEY>`. Keep this
+value private. The optional `x-opencode-key` request header carries a separate upstream OpenCode
+credential for chat requests. It does not replace or authenticate the wrapper Bearer key. The
+OpenAI SDK's `apiKey` configures the wrapper Bearer credential; use `defaultHeaders` separately
+if you want to send `x-opencode-key`.
+
 | Variable | Default | Description |
 |---|---:|---|
+| `HOST` | `0.0.0.0` | Address the API listens on |
+| `PORT` | `3000` | API port |
+| `API_KEY` | required | Secret used to authenticate wrapper requests with `Authorization: Bearer <API_KEY>` |
 | `OPENCODE_BIN` | `opencode` | OpenCode CLI command or path |
 | `OPENCODE_TIMEOUT_MS` | `120000` | Timeout for a chat request, in milliseconds |
 | `OPENCODE_MODELS_TTL_MS` | `300000` | How long to cache the model list, in milliseconds |
 | `OPENCODE_MODELS_TIMEOUT_MS` | `30000` | Timeout for reading the model list, in milliseconds |
-| `PORT` | `3000` | API port |
-| `HOST` | `0.0.0.0` | Address the API listens on |
 | `OPENCODE_PROXY_URL` | unset | Proxy URL applied to both HTTP and HTTPS for the spawned CLI |
 
 ## Outbound proxy
