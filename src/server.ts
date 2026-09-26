@@ -1,6 +1,6 @@
 import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
-import { ModelNotFoundError } from "./config/index.js";
+import { describeProxyEnv, ModelNotFoundError, resolveProxyEnv } from "./config/index.js";
 import { toOpenAIErrorBody } from "./lib/openai-format/index.js";
 import { chatRoutes } from "./routes/chat.js";
 import { modelsRoutes } from "./routes/models.js";
@@ -19,6 +19,14 @@ function hasValidationErrors(error: unknown): boolean {
 
 export function buildServer(): FastifyInstance {
   const app = Fastify({ logger: true });
+
+  const proxyEnv = resolveProxyEnv();
+  const proxyConfigured = Boolean(proxyEnv.HTTP_PROXY || proxyEnv.HTTPS_PROXY || proxyEnv.ALL_PROXY);
+  if (proxyConfigured) {
+    app.log.info(`outbound proxy configured: ${describeProxyEnv()}`);
+  } else {
+    app.log.debug("outbound proxy: none");
+  }
 
   app.register(modelsRoutes);
   app.register(chatRoutes);
