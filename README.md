@@ -100,6 +100,38 @@ console.log(response.choices[0]?.message.content);
 | `OPENCODE_MODELS_TIMEOUT_MS` | `30000` | Timeout for reading the model list, in milliseconds |
 | `PORT` | `3000` | API port |
 | `HOST` | `0.0.0.0` | Address the API listens on |
+| `OPENCODE_PROXY_URL` | unset | Apply one proxy URL to both HTTP and HTTPS outbound requests |
+| `OPENCODE_NO_PROXY` | loopback addresses | Override the proxy bypass list |
+
+## Outbound proxy
+
+Only the spawned `opencode run` CLI makes outbound requests. The CLI's Bun runtime honors
+standard HTTP proxy environment variables natively. The wrapper adds `OPENCODE_PROXY_URL` and
+`OPENCODE_NO_PROXY` for simpler configuration.
+
+| Variable | Precedence and behavior |
+|---|---|
+| `OPENCODE_PROXY_URL` | Highest precedence; sets both `HTTP_PROXY` and `HTTPS_PROXY` to the same URL. |
+| `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` | Native per-scheme variables; `ALL_PROXY` is the fallback when a scheme-specific proxy is absent. |
+| `OPENCODE_NO_PROXY` | Takes precedence over `NO_PROXY`. |
+| `NO_PROXY` | Native bypass list; when a proxy is configured it defaults to `localhost,127.0.0.1,::1` so loopback requests stay local. |
+| `NODE_EXTRA_CA_CERTS` | Optional Node/Bun extra CA certificate file passed to the CLI. |
+
+For local development, set a single proxy URL:
+
+```bash
+OPENCODE_PROXY_URL=http://127.0.0.1:8080 npm run dev
+```
+
+For Docker with a proxy running on the host:
+
+```bash
+OPENCODE_PROXY_URL=http://host.docker.internal:8080 docker compose up
+```
+
+SOCKS5 proxies are not supported by Bun. Proxy configuration through `opencode.json` is also
+unavailable; upstream PR #10856 closed without merging, so configure proxies with environment
+variables only.
 
 ## How it works
 
