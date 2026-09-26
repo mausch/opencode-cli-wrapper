@@ -144,6 +144,8 @@ export async function runOnce(params: RunParams, env: NodeJS.ProcessEnv = proces
         const stderr = stderrBuf.trim();
         if (stderr) error = stderr.slice(0, 2000);
       }
+      const apiKey = env.OPENCODE_API_KEY;
+      if (error && apiKey) error = error.split(apiKey).join("[redacted]");
       resolve({ ...reduced, error });
     };
 

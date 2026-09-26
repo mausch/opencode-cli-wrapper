@@ -18,6 +18,7 @@ const DEFAULT_MODELS_TIMEOUT_MS = 30_000;
 
 let catalogCache: CatalogCache | null = null;
 let refreshPromise: Promise<CatalogEntry[]> | null = null;
+let catalogGeneration = 0;
 
 export class CatalogError extends Error {
   override name = "CatalogError";
@@ -100,9 +101,10 @@ function readCatalog(bin: string, env: NodeJS.ProcessEnv): Promise<CatalogEntry[
 export async function getCatalog(env: NodeJS.ProcessEnv = process.env): Promise<CatalogEntry[]> {
   if (catalogCache && Date.now() - catalogCache.fetchedAt < getModelsTtlMs(env)) return catalogCache.entries;
   if (!refreshPromise) {
+    const generation = catalogGeneration;
     refreshPromise = readCatalog(resolveOpencodeBin(env), env)
       .then((entries) => {
-        catalogCache = { entries, fetchedAt: Date.now() };
+        if (generation === catalogGeneration) catalogCache = { entries, fetchedAt: Date.now() };
         return entries;
       })
       .catch((cause: unknown) => {
@@ -118,6 +120,7 @@ export async function getCatalog(env: NodeJS.ProcessEnv = process.env): Promise<
 }
 
 export function resetCatalogCache(): void {
+  catalogGeneration += 1;
   catalogCache = null;
   refreshPromise = null;
 }

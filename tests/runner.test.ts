@@ -24,8 +24,17 @@ describe("runOnce spawn environment", () => {
   beforeEach(() => spawnMock.mockReset());
 
   it("passes a caller-supplied API key to spawn without putting it in the result error", async () => {
-    mockSpawnClose();
-    const env = { OPENCODE_API_KEY: "t" };
+    spawnMock.mockImplementation(() => {
+      const child = new EventEmitter() as ChildProcess;
+      const stdout = new PassThrough();
+      Object.assign(child, { stdin: new PassThrough(), stdout, stderr: new PassThrough(), exitCode: 0 });
+      queueMicrotask(() => {
+        stdout.end(`${JSON.stringify({ type: "error", error: { data: { message: "failure unique-secret-token; unique-secret-token" } } })}\n`);
+        child.emit("close", 0);
+      });
+      return child;
+    });
+    const env = { OPENCODE_API_KEY: "unique-secret-token" };
 
     const result = await runOnce({ model: "provider/model", prompt: "hello", timeoutMs: 1000 }, env);
 
@@ -34,7 +43,8 @@ describe("runOnce spawn environment", () => {
       stdio: ["pipe", "pipe", "pipe"],
       env,
     });
-    expect(result.error).toBeNull();
+    expect(result.error).toBe("failure [redacted]; [redacted]");
+    expect(result.error).not.toContain(env.OPENCODE_API_KEY);
   });
 
   it("passes an environment without an API key when auth is not supplied", async () => {
@@ -55,7 +65,7 @@ describe("runOnce spawn environment", () => {
       const stderr = new PassThrough();
       Object.assign(child, { stdin: new PassThrough(), stdout: new PassThrough(), stderr, exitCode: 1 });
       queueMicrotask(() => {
-        stderr.end("upstream failure");
+        stderr.end("upstream failure: unique-secret-token leaked unique-secret-token");
         child.emit("close", 1);
       });
       return child;
@@ -64,9 +74,10 @@ describe("runOnce spawn environment", () => {
 
     const result = await runOnce({ model: "provider/model", prompt: "hello", timeoutMs: 1000 }, env);
 
-    expect(result.error).toBe("upstream failure");
+    expect(result.error).toBe("upstream failure: [redacted] leaked [redacted]");
     expect(result.error).not.toContain(env.OPENCODE_API_KEY);
   });
+
 });
 
 describe("reduceEvents", () => {
@@ -148,7 +159,7 @@ itIntegration(
         prompt: "Responda apenas com a palavra: ok",
         timeoutMs: 90_000,
       },
-      {},
+      process.env,
     );
 
     expect(res.error).toBeNull();

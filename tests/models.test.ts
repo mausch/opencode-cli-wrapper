@@ -144,12 +144,27 @@ describe("getCatalog", () => {
     await result;
   });
 
-  it("forces a fresh process after the cache is reset", async () => {
-    mockSpawnOutput(FIXTURE_MODELS_STDOUT);
-    await getCatalog({});
-    resetCatalogCache();
-    await getCatalog({});
+  it("does not cache a refresh that completes after reset", async () => {
+    let finishRefresh: (() => void) | undefined;
+    spawnMock.mockImplementationOnce(() => {
+      const child = new EventEmitter() as ChildProcess;
+      const output = new PassThrough();
+      Object.assign(child, { stdout: output, stderr: new PassThrough(), stdin: null, exitCode: 0 });
+      finishRefresh = () => {
+        output.end("stale/pre-reset");
+        child.emit("close", 0);
+      };
+      return child;
+    });
+    mockSpawnOutput("fresh/post-reset");
 
+    const pendingCatalog = getCatalog({});
+    resetCatalogCache();
+    finishRefresh?.();
+    await pendingCatalog;
+    const nextCatalog = await getCatalog({});
+
+    expect(nextCatalog.map((entry) => entry.canonical)).toEqual(["fresh/post-reset"]);
     expect(spawnMock).toHaveBeenCalledTimes(2);
   });
 });
