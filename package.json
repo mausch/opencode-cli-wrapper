@@ -2,6 +2,7 @@
   "name": "opencode-openai-api",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "OpenAI-compatible HTTP API that proxies OpenCode free models through the official `opencode` CLI.",
   "engines": {
