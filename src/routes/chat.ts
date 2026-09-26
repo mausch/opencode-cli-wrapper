@@ -49,7 +49,7 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     { schema: chatBodySchema },
     async (request, reply) => {
       const body = request.body;
-      const auth = extractAuth(request.headers.authorization);
+      const auth = extractAuth(request.headers["x-opencode-key"]);
 
       let entries: CatalogEntry[];
       try {
