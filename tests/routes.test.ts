@@ -7,6 +7,7 @@ const catalogFixture = [
   { canonical: "opencode/space-bunny-free", provider: "opencode", id: "space-bunny-free", limits: null },
   { canonical: "opencode/claude-opus-5", provider: "opencode", id: "claude-opus-5", limits: { context: 100, input: null, output: 20 } },
 ];
+const inboundHeaders = { authorization: "Bearer test-inbound-key" };
 
 const { getCatalogMock, useRealCatalog } = vi.hoisted(() => ({
   getCatalogMock: vi.fn(),
@@ -26,18 +27,20 @@ describe("Routes (P6/P7)", () => {
   let app: FastifyInstance;
 
   beforeEach(() => {
+    vi.stubEnv("API_KEY", "test-inbound-key");
     getCatalogMock.mockReset();
     getCatalogMock.mockResolvedValue(catalogFixture);
-    app = buildServer();
+    app = buildServer("test-inbound-key");
   });
 
   afterEach(async () => {
     await app.close();
+    vi.unstubAllEnvs();
     useRealCatalog.value = false;
   });
 
-  it("GET /v1/models returns only free ids without Authorization", async () => {
-    const res = await app.inject({ method: "GET", url: "/v1/models" });
+  it("GET /v1/models returns only free ids without an upstream key", async () => {
+    const res = await app.inject({ method: "GET", url: "/v1/models", headers: inboundHeaders });
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
@@ -49,8 +52,8 @@ describe("Routes (P6/P7)", () => {
     });
   });
 
-  it("GET /models.dev.json returns the full flat catalog without Authorization", async () => {
-    const res = await app.inject({ method: "GET", url: "/models.dev.json" });
+  it("GET /models.dev.json returns the full flat catalog", async () => {
+    const res = await app.inject({ method: "GET", url: "/models.dev.json", headers: inboundHeaders });
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
@@ -67,17 +70,17 @@ describe("Routes (P6/P7)", () => {
     const { CatalogError } = await import("../src/lib/opencode/models.js");
     getCatalogMock.mockRejectedValueOnce(new CatalogError("catalog unavailable"));
 
-    const res = await app.inject({ method: "GET", url: "/models.dev.json" });
+    const res = await app.inject({ method: "GET", url: "/models.dev.json", headers: inboundHeaders });
 
     expect(res.statusCode).toBe(500);
     expect(res.json()).toMatchObject({ error: { type: "server_error", code: "opencode_error" } });
   });
 
-  it("GET /v1/models returns all catalog ids with Authorization", async () => {
+  it("GET /v1/models returns all catalog ids with x-opencode-key", async () => {
     const res = await app.inject({
       method: "GET",
       url: "/v1/models",
-      headers: { authorization: "Bearer test" },
+      headers: { ...inboundHeaders, "x-opencode-key": "upstream-key" },
     });
 
     expect(res.statusCode).toBe(200);
@@ -90,14 +93,14 @@ describe("Routes (P6/P7)", () => {
     const { CatalogError } = await import("../src/lib/opencode/models.js");
     getCatalogMock.mockRejectedValueOnce(new CatalogError("catalog unavailable"));
 
-    const res = await app.inject({ method: "GET", url: "/v1/models" });
+    const res = await app.inject({ method: "GET", url: "/v1/models", headers: inboundHeaders });
 
     expect(res.statusCode).toBe(500);
     expect(res.json()).toMatchObject({ error: { type: "server_error", code: "opencode_error" } });
   });
 
   it("GET /health returns ok", async () => {
-    const res = await app.inject({ method: "GET", url: "/health" });
+    const res = await app.inject({ method: "GET", url: "/health", headers: inboundHeaders });
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ status: "ok" });
@@ -107,6 +110,7 @@ describe("Routes (P6/P7)", () => {
     const res = await app.inject({
       method: "POST",
       url: "/v1/chat/completions",
+      headers: inboundHeaders,
       payload: { model: "mimo-v2.6-flash-free" },
     });
 
@@ -118,6 +122,7 @@ describe("Routes (P6/P7)", () => {
     const res = await app.inject({
       method: "POST",
       url: "/v1/chat/completions",
+      headers: inboundHeaders,
       payload: { model: "opencode/claude-opus-5", messages: [{ role: "user", content: "hi" }] },
     });
 
@@ -128,10 +133,10 @@ describe("Routes (P6/P7)", () => {
   const itIntegration = process.env.INTEGRATION === "1" ? it : it.skip;
 
   itIntegration(
-    "returns only free models without Authorization and more models with Authorization",
+    "returns only free models without x-opencode-key and more models with x-opencode-key",
     async () => {
       useRealCatalog.value = true;
-      const freeResponse = await app.inject({ method: "GET", url: "/v1/models" });
+      const freeResponse = await app.inject({ method: "GET", url: "/v1/models", headers: inboundHeaders });
 
       expect(freeResponse.statusCode).toBe(200);
       const freeModels = freeResponse.json().data as Array<{ id: string }>;
@@ -141,7 +146,7 @@ describe("Routes (P6/P7)", () => {
       const authenticatedResponse = await app.inject({
         method: "GET",
         url: "/v1/models",
-        headers: { authorization: "Bearer test" },
+        headers: { ...inboundHeaders, "x-opencode-key": "upstream-key" },
       });
 
       expect(authenticatedResponse.statusCode).toBe(200);
@@ -152,12 +157,13 @@ describe("Routes (P6/P7)", () => {
   );
 
   itIntegration(
-    "rejects a non-free model without Authorization",
+    "rejects a non-free model without x-opencode-key",
     async () => {
       useRealCatalog.value = true;
       const res = await app.inject({
         method: "POST",
         url: "/v1/chat/completions",
+        headers: inboundHeaders,
         payload: {
           model: "opencode/claude-opus-5",
           messages: [{ role: "user", content: "hi" }],
@@ -176,6 +182,7 @@ describe("Routes (P6/P7)", () => {
       const res = await app.inject({
         method: "POST",
         url: "/v1/chat/completions",
+        headers: inboundHeaders,
         payload: {
           model: "opencode/mimo-v2.6-flash-free",
           messages: [{ role: "user", content: "Responda apenas: ok" }],
@@ -196,6 +203,7 @@ describe("Routes (P6/P7)", () => {
       const res = await app.inject({
         method: "POST",
         url: "/v1/chat/completions",
+        headers: inboundHeaders,
         payload: {
           model: "opencode/mimo-v2.6-flash-free",
           messages: [{ role: "user", content: "Responda apenas: ok" }],
@@ -209,4 +217,5 @@ describe("Routes (P6/P7)", () => {
     },
     120_000,
   );
+
 });

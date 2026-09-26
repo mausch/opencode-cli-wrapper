@@ -1,4 +1,5 @@
 import { config as loadEnv } from "dotenv";
+import { timingSafeEqual } from "node:crypto";
 import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
 import { describeProxyEnv, ModelNotFoundError, resolveProxyEnv } from "./config/index.js";
@@ -18,8 +19,37 @@ function hasValidationErrors(error: unknown): boolean {
   return Array.isArray(value) && value.length > 0;
 }
 
-export function buildServer(): FastifyInstance {
+export function buildServer(apiKey = process.env.API_KEY): FastifyInstance {
+  if (typeof apiKey !== "string" || apiKey.trim().length === 0) {
+    throw new Error("API_KEY must be configured");
+  }
+  if (!/^[^\s,]+$/.test(apiKey)) {
+    throw new Error("API_KEY must be a valid Bearer token without whitespace or commas");
+  }
+
   const app = Fastify({ logger: true });
+
+  app.addHook("onRequest", async (request, reply) => {
+    const authorization = request.headers.authorization;
+    const match = typeof authorization === "string"
+      ? /^Bearer ([^\s,]+)$/i.exec(authorization)
+      : null;
+    const providedKey = match?.[1];
+    const provided = Buffer.from(providedKey ?? "");
+    const expected = Buffer.from(apiKey);
+    const valid = provided.length === expected.length && timingSafeEqual(provided, expected);
+
+    if (!valid) {
+      reply.status(401).send({
+        error: {
+          message: "Invalid authentication credentials",
+          type: "server_error",
+          code: "opencode_error",
+          param: null,
+        },
+      });
+    }
+  });
 
   const proxyEnv = resolveProxyEnv();
   const proxyConfigured = Boolean(proxyEnv.HTTP_PROXY);

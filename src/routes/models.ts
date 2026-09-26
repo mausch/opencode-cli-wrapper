@@ -5,8 +5,8 @@ import { CatalogError, getCatalog } from "../lib/opencode/models.js";
 import { toOpenAIErrorBody } from "../lib/openai-format/index.js";
 
 export async function modelsRoutes(app: FastifyInstance): Promise<void> {
-  app.get<{ Headers: { authorization?: string | string[] } }>("/v1/models", async (request, reply) => {
-    const auth = extractAuth(request.headers.authorization);
+  app.get<{ Headers: { "x-opencode-key"?: string | string[] } }>("/v1/models", async (request, reply) => {
+    const auth = extractAuth(request.headers["x-opencode-key"]);
     try {
       const entries = await getCatalog();
       reply.status(200).send(listModels(auth, entries));
