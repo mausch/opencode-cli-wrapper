@@ -15,7 +15,7 @@ import {
 const entries: CatalogEntry[] = [
   { canonical: "opencode/mimo-v2.6-flash-free", provider: "opencode", id: "mimo-v2.6-flash-free" },
   { canonical: "opencode/space-bunny-free", provider: "opencode", id: "space-bunny-free" },
-  { canonical: "deepseek/deepseek-flash", provider: "deepseek", id: "deepseek-flash" },
+  { canonical: "opencode/claude-opus-5", provider: "opencode", id: "claude-opus-5" },
 ];
 
 const noAuth: AuthContext = { enabled: false, token: null };
@@ -36,7 +36,7 @@ describe("config module", () => {
       data: [
         { id: "mimo-v2.6-flash-free", object: "model", owned_by: "opencode" },
         { id: "space-bunny-free", object: "model", owned_by: "opencode" },
-        { id: "deepseek-flash", object: "model", owned_by: "deepseek" },
+        { id: "claude-opus-5", object: "model", owned_by: "opencode" },
       ],
     });
   });
@@ -71,54 +71,62 @@ describe("config module", () => {
 });
 
 describe("resolveProxyEnv", () => {
-  it("expands OPENCODE_PROXY_URL to HTTP_PROXY and HTTPS_PROXY only", () => {
-    expect(resolveProxyEnv({ OPENCODE_PROXY_URL: "http://proxy:8080", ALL_PROXY: "http://all:8080" })).toEqual({
+  it("maps OPENCODE_PROXY_URL to HTTP_PROXY and HTTPS_PROXY with a loopback bypass", () => {
+    expect(resolveProxyEnv({ OPENCODE_PROXY_URL: "http://proxy:8080" })).toEqual({
       HTTP_PROXY: "http://proxy:8080",
       HTTPS_PROXY: "http://proxy:8080",
       NO_PROXY: "localhost,127.0.0.1,::1",
     });
   });
 
-  it("normalizes lowercase scheme-specific proxy variables", () => {
-    expect(resolveProxyEnv({ http_proxy: "http://http:8080", https_proxy: "http://https:8080" })).toEqual({
-      HTTP_PROXY: "http://http:8080",
-      HTTPS_PROXY: "http://https:8080",
-      NO_PROXY: "localhost,127.0.0.1,::1",
-    });
+  it("trims the configured proxy URL", () => {
+    expect(resolveProxyEnv({ OPENCODE_PROXY_URL: "  http://proxy:8080  " }).HTTP_PROXY).toBe("http://proxy:8080");
   });
 
-  it("uses ALL_PROXY when no scheme-specific proxy is configured", () => {
-    expect(resolveProxyEnv({ all_proxy: "http://all:8080" })).toEqual({
-      ALL_PROXY: "http://all:8080",
-      NO_PROXY: "localhost,127.0.0.1,::1",
-    });
+  it("ignores ambient proxy variables and only uses OPENCODE_PROXY_URL", () => {
+    const env = { HTTP_PROXY: "http://http:8080", HTTPS_PROXY: "http://https:8080", NO_PROXY: "example.com" };
+    expect(resolveProxyEnv(env)).toEqual({});
   });
 
-  it("defaults NO_PROXY to loopback when a proxy is configured", () => {
-    expect(resolveProxyEnv({ OPENCODE_PROXY_URL: "http://proxy:8080" }).NO_PROXY).toBe("localhost,127.0.0.1,::1");
-  });
-
-  it("returns no proxy variables when none is configured", () => {
+  it("returns no proxy variables when OPENCODE_PROXY_URL is empty", () => {
     expect(resolveProxyEnv({})).toEqual({});
-    expect(resolveProxyEnv({ NO_PROXY: "example.com" })).toEqual({});
-  });
-
-  it("respects an explicitly empty NO_PROXY when a proxy is configured", () => {
-    expect(resolveProxyEnv({ OPENCODE_PROXY_URL: "http://proxy:8080", NO_PROXY: "" })).toEqual({
-      HTTP_PROXY: "http://proxy:8080",
-      HTTPS_PROXY: "http://proxy:8080",
-      NO_PROXY: "",
-    });
-  });
-
-  it("gives OPENCODE_NO_PROXY precedence over NO_PROXY", () => {
-    const env = { OPENCODE_PROXY_URL: "http://proxy:8080", OPENCODE_NO_PROXY: "internal", NO_PROXY: "other" };
-    expect(resolveProxyEnv(env).NO_PROXY).toBe("internal");
+    expect(resolveProxyEnv({ OPENCODE_PROXY_URL: "" })).toEqual({});
+    expect(resolveProxyEnv({ OPENCODE_PROXY_URL: "   " })).toEqual({});
   });
 
   it("masks credentials in describeProxyEnv", () => {
     expect(describeProxyEnv({ OPENCODE_PROXY_URL: "http://user:pass@proxy:8080" })).toBe(
       "HTTP_PROXY=http://***@proxy:8080 HTTPS_PROXY=http://***@proxy:8080 NO_PROXY=localhost,127.0.0.1,::1",
     );
+  });
+
+  it("describes nothing when no proxy is configured", () => {
+    expect(describeProxyEnv({ HTTP_PROXY: "http://http:8080" })).toBe("");
+  });
+});
+
+describe("ZEN model preference", () => {
+  const dual: CatalogEntry[] = [
+    { canonical: "opencode-go/space-bunny-free", provider: "opencode-go", id: "space-bunny-free" },
+    { canonical: "opencode/space-bunny-free", provider: "opencode", id: "space-bunny-free" },
+    { canonical: "opencode/mimo-v2.6-flash-free", provider: "opencode", id: "mimo-v2.6-flash-free" },
+  ];
+
+  it("resolves a short id shared by ZEN and GO to the ZEN provider", () => {
+    expect(resolveModel("space-bunny-free", noAuth, dual)).toBe("opencode/space-bunny-free");
+  });
+
+  it("still honors an explicit GO canonical id", () => {
+    expect(resolveModel("opencode-go/space-bunny-free", noAuth, dual)).toBe("opencode-go/space-bunny-free");
+  });
+
+  it("lists a single entry per id, preferring ZEN", () => {
+    expect(listModels(noAuth, dual)).toEqual({
+      object: "list",
+      data: [
+        { id: "space-bunny-free", object: "model", owned_by: "opencode" },
+        { id: "mimo-v2.6-flash-free", object: "model", owned_by: "opencode" },
+      ],
+    });
   });
 });

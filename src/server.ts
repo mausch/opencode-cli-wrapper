@@ -1,3 +1,4 @@
+import { config as loadEnv } from "dotenv";
 import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
 import { describeProxyEnv, ModelNotFoundError, resolveProxyEnv } from "./config/index.js";
@@ -21,7 +22,7 @@ export function buildServer(): FastifyInstance {
   const app = Fastify({ logger: true });
 
   const proxyEnv = resolveProxyEnv();
-  const proxyConfigured = Boolean(proxyEnv.HTTP_PROXY || proxyEnv.HTTPS_PROXY || proxyEnv.ALL_PROXY);
+  const proxyConfigured = Boolean(proxyEnv.HTTP_PROXY);
   if (proxyConfigured) {
     app.log.info(`outbound proxy configured: ${describeProxyEnv()}`);
   } else {
@@ -57,6 +58,7 @@ const entry = process.argv[1];
 const isMain = typeof entry === "string" && (entry.endsWith("server.js") || entry.endsWith("server.ts"));
 
 if (isMain) {
+  loadEnv();
   const app = buildServer();
   const port = process.env.PORT ? Number(process.env.PORT) : 3000;
   const host = process.env.HOST ?? "0.0.0.0";

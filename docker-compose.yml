@@ -15,10 +15,6 @@ services:
       HOME: "/home/node"
       OPENCODE_BIN: "opencode"
       OPENCODE_PROXY_URL: "${OPENCODE_PROXY_URL:-}"
-      HTTP_PROXY: "${HTTP_PROXY:-}"
-      HTTPS_PROXY: "${HTTPS_PROXY:-}"
-      ALL_PROXY: "${ALL_PROXY:-}"
-      NO_PROXY: "${NO_PROXY:-localhost,127.0.0.1,::1}"
       NODE_EXTRA_CA_CERTS: "${NODE_EXTRA_CA_CERTS:-}"
     extra_hosts:
       - "host.docker.internal:host-gateway"

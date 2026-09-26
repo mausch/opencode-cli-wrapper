@@ -147,14 +147,21 @@ describe("reduceEvents", () => {
 });
 
 describe("buildChildEnv", () => {
-  it("adds normalized proxy variables while inheriting the base environment", () => {
+  it("maps OPENCODE_PROXY_URL onto the child proxy variables", () => {
     const childEnv = buildChildEnv({ OPENCODE_PROXY_URL: "http://p:8080" }, { PATH: "/bin" });
 
-    expect(childEnv).toMatchObject({
+    expect(childEnv).toEqual({
       PATH: "/bin",
       HTTP_PROXY: "http://p:8080",
       HTTPS_PROXY: "http://p:8080",
+      NO_PROXY: "localhost,127.0.0.1,::1",
     });
+  });
+
+  it("strips ambient proxy variables from the base environment", () => {
+    const childEnv = buildChildEnv({}, { PATH: "/bin", HTTP_PROXY: "http://ambient:8080", NO_PROXY: "example.com" });
+
+    expect(childEnv).toEqual({ PATH: "/bin" });
   });
 
   it("leaves the environment untouched when no proxy is configured", () => {
@@ -194,8 +201,8 @@ itIntegration(
     vi.resetModules();
     const { runOnce: runWithRealSpawn } = await import("../src/lib/opencode/runner.js");
     const res = await runWithRealSpawn(
-      { model: "deepseek/deepseek-flash", prompt: "ok", timeoutMs: 90_000 },
-      { ...process.env, OPENCODE_PROXY_URL: "http://127.0.0.1:1", NO_PROXY: "" },
+      { model: "opencode/mimo-v2.6-flash-free", prompt: "ok", timeoutMs: 90_000 },
+      { ...process.env, OPENCODE_PROXY_URL: "http://127.0.0.1:1" },
     );
 
     expect(res.error).toMatch(/connect|Unable to connect|proxy/i);
