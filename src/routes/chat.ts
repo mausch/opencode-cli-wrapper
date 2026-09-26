@@ -2,6 +2,9 @@ import type { FastifyInstance } from "fastify";
 import { ModelNotFoundError, resolveModel } from "../config/index.js";
 import type { ChatMessage } from "../lib/opencode/compose.js";
 import { applyAnchors, composePrompt } from "../lib/opencode/compose.js";
+import { extractAuth } from "../lib/opencode/auth.js";
+import { CatalogError, getCatalog } from "../lib/opencode/models.js";
+import type { CatalogEntry } from "../lib/opencode/models.js";
 import { runOnce } from "../lib/opencode/runner.js";
 import { buildCompletion, buildSseBody, SSE_DONE, toOpenAIErrorBody } from "../lib/openai-format/index.js";
 
@@ -46,10 +49,21 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
     { schema: chatBodySchema },
     async (request, reply) => {
       const body = request.body;
+      const auth = extractAuth(request.headers.authorization);
+
+      let entries: CatalogEntry[];
+      try {
+        entries = await getCatalog();
+      } catch (error) {
+        if (!(error instanceof CatalogError)) throw error;
+        const mapped = toOpenAIErrorBody(error, 500);
+        reply.status(mapped.status).send(mapped.body);
+        return;
+      }
 
       let canonicalModel: string;
       try {
-        canonicalModel = resolveModel(body.model);
+        canonicalModel = resolveModel(body.model, auth, entries);
       } catch (err) {
         if (err instanceof ModelNotFoundError) {
           const mapped = toOpenAIErrorBody(err, 404);
@@ -63,7 +77,8 @@ export async function chatRoutes(app: FastifyInstance): Promise<void> {
         temperature: body.temperature,
         maxTokens: body.max_tokens,
       });
-      const result = await runOnce({ model: canonicalModel, prompt, variant: body.variant });
+      const env = { ...process.env, ...(auth.token ? { OPENCODE_API_KEY: auth.token } : {}) };
+      const result = await runOnce({ model: canonicalModel, prompt, variant: body.variant }, env);
 
       if (!body.stream) {
         if (result.error) {
