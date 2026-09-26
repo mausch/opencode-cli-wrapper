@@ -12,6 +12,7 @@ services:
     environment:
       PORT: "3000"
       HOST: "0.0.0.0"
+      API_KEY: "${API_KEY:?API_KEY is required}"
       HOME: "/home/node"
       OPENCODE_BIN: "opencode"
       OPENCODE_PROXY_URL: "${OPENCODE_PROXY_URL:-}"
@@ -30,7 +31,7 @@ services:
         - CMD
         - node
         - -e
-        - "fetch('http://127.0.0.1:3000/v1/models').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        - "fetch('http://127.0.0.1:3000/v1/models', {headers: {Authorization: 'Bearer ' + process.env['API_KEY']}}).then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
       interval: 30s
       timeout: 5s
       retries: 3
