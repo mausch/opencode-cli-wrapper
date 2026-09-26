@@ -62,7 +62,7 @@ Send a chat completion:
 ```bash
 curl http://localhost:3000/v1/chat/completions \
   -H 'content-type: application/json' \
-  -d '{"model":"deepseek/deepseek-flash","messages":[{"role":"user","content":"Say hello"}]}'
+  -d '{"model":"mimo-v2.6-flash-free","messages":[{"role":"user","content":"Say hello"}]}'
 ```
 
 ```json
@@ -83,7 +83,7 @@ const client = new OpenAI({
 });
 
 const response = await client.chat.completions.create({
-  model: "deepseek/deepseek-flash",
+  model: "mimo-v2.6-flash-free",
   messages: [{ role: "user", content: "Say hello" }],
 });
 
@@ -100,24 +100,23 @@ console.log(response.choices[0]?.message.content);
 | `OPENCODE_MODELS_TIMEOUT_MS` | `30000` | Timeout for reading the model list, in milliseconds |
 | `PORT` | `3000` | API port |
 | `HOST` | `0.0.0.0` | Address the API listens on |
-| `OPENCODE_PROXY_URL` | unset | Apply one proxy URL to both HTTP and HTTPS outbound requests |
-| `OPENCODE_NO_PROXY` | loopback addresses | Override the proxy bypass list |
+| `OPENCODE_PROXY_URL` | unset | Proxy URL applied to both HTTP and HTTPS for the spawned CLI |
 
 ## Outbound proxy
 
-Only the spawned `opencode run` CLI makes outbound requests. The CLI's Bun runtime honors
-standard HTTP proxy environment variables natively. The wrapper adds `OPENCODE_PROXY_URL` and
-`OPENCODE_NO_PROXY` for simpler configuration.
+Only the spawned `opencode run` CLI makes outbound requests. Configure its proxy with a single
+variable:
 
-| Variable | Precedence and behavior |
-|---|---|
-| `OPENCODE_PROXY_URL` | Highest precedence; sets both `HTTP_PROXY` and `HTTPS_PROXY` to the same URL. |
-| `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` | Native per-scheme variables; `ALL_PROXY` is the fallback when a scheme-specific proxy is absent. |
-| `OPENCODE_NO_PROXY` | Takes precedence over `NO_PROXY`. |
-| `NO_PROXY` | Native bypass list; when a proxy is configured it defaults to `localhost,127.0.0.1,::1` so loopback requests stay local. |
-| `NODE_EXTRA_CA_CERTS` | Optional Node/Bun extra CA certificate file passed to the CLI. |
+| Variable | Default | Description |
+|---|---|---|
+| `OPENCODE_PROXY_URL` | unset | Proxy URL applied to both HTTP and HTTPS for the CLI. Leave unset to connect directly. |
+| `NODE_EXTRA_CA_CERTS` | unset | Optional extra CA certificate file passed to the CLI. |
 
-For local development, set a single proxy URL:
+The wrapper sets the CLI's `HTTP_PROXY`/`HTTPS_PROXY` from `OPENCODE_PROXY_URL`, always bypasses
+the proxy for loopback (`localhost,127.0.0.1,::1`), and ignores any ambient
+`HTTP_PROXY`/`HTTPS_PROXY` — `OPENCODE_PROXY_URL` is the single source of truth.
+
+For local development:
 
 ```bash
 OPENCODE_PROXY_URL=http://127.0.0.1:8080 npm run dev
@@ -130,8 +129,8 @@ OPENCODE_PROXY_URL=http://host.docker.internal:8080 docker compose up
 ```
 
 SOCKS5 proxies are not supported by Bun. Proxy configuration through `opencode.json` is also
-unavailable; upstream PR #10856 closed without merging, so configure proxies with environment
-variables only.
+unavailable; upstream PR #10856 closed without merging, so configure the proxy with
+`OPENCODE_PROXY_URL` only.
 
 ## How it works
 

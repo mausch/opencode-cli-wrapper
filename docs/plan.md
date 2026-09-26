@@ -57,7 +57,6 @@ opencode/nemotron-3.5-lightning-free
 opencode/ling-3.0-flash-fin-free
 opencode/muse-spark-1.3-contributor-free
 opencode-go/qwen3.8-flash   (e outros opencode-go/*)
-deepseek/deepseek-flash
 ```
 
 ### 3.4 Teste 1 — Streaming → **NÃO é token-a-token**

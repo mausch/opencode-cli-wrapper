@@ -93,7 +93,7 @@ curl -s http://localhost:3000/v1/models \
 ```bash
 curl -s http://localhost:3000/v1/chat/completions \
   -H 'content-type: application/json' \
-  -d '{"model":"deepseek/deepseek-flash","messages":[{"role":"user","content":"Olá, quem é você?"}]}'
+  -d '{"model":"mimo-v2.6-flash-free","messages":[{"role":"user","content":"Olá, quem é você?"}]}'
 ```
 
 ```json
@@ -101,7 +101,7 @@ curl -s http://localhost:3000/v1/chat/completions \
   "id": "chatcmpl-...",
   "object": "chat.completion",
   "created": 1790375466,
-  "model": "deepseek/deepseek-flash",
+  "model": "mimo-v2.6-flash-free",
   "choices": [{ "index": 0, "message": { "role": "assistant", "content": "..." }, "finish_reason": "stop" }],
   "usage": { "prompt_tokens": 32921, "completion_tokens": 9, "total_tokens": 32930 }
 }
@@ -112,7 +112,7 @@ curl -s http://localhost:3000/v1/chat/completions \
 ```bash
 curl -sN http://localhost:3000/v1/chat/completions \
   -H 'content-type: application/json' \
-  -d '{"model":"deepseek/deepseek-flash","messages":[{"role":"user","content":"Olá"}],"stream":true}'
+  -d '{"model":"mimo-v2.6-flash-free","messages":[{"role":"user","content":"Olá"}],"stream":true}'
 ```
 
 Returns `text/event-stream` (`chat.completion.chunk` frames) terminated by `data: [DONE]`.
@@ -125,7 +125,7 @@ import OpenAI from "openai";
 const client = new OpenAI({ baseURL: "http://localhost:3000/v1", apiKey: "not-needed" });
 
 const completion = await client.chat.completions.create({
-  model: "deepseek/deepseek-flash",
+  model: "mimo-v2.6-flash-free",
   messages: [{ role: "user", content: "Olá, quem é você?" }],
 });
 ```
