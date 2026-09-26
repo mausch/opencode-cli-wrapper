@@ -20,6 +20,5 @@ npm-debug.log*
 .vscode/
 
 # Agent tooling state
-.omo/*
-!.omo/plans/
+.omo/
 .codegraph
