@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { spawn } from "node:child_process";
 import { reduceEvents, runOnce } from "../src/lib/opencode/runner.js";
 import type { RunParams, RunResult } from "../src/lib/opencode/runner.js";
+import { buildChildEnv } from "../src/config/index.js";
 
 vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
 
@@ -134,6 +135,22 @@ describe("reduceEvents", () => {
   });
 });
 
+describe("buildChildEnv", () => {
+  it("adds normalized proxy variables while inheriting the base environment", () => {
+    const childEnv = buildChildEnv({ OPENCODE_PROXY_URL: "http://p:8080" }, { PATH: "/bin" });
+
+    expect(childEnv).toMatchObject({
+      PATH: "/bin",
+      HTTP_PROXY: "http://p:8080",
+      HTTPS_PROXY: "http://p:8080",
+    });
+  });
+
+  it("leaves the environment untouched when no proxy is configured", () => {
+    expect(buildChildEnv({ OPENCODE_API_KEY: "t" })).toEqual({ OPENCODE_API_KEY: "t" });
+  });
+});
+
 const itIntegration = process.env.INTEGRATION === "1" ? it : it.skip;
 
 itIntegration(
@@ -155,6 +172,22 @@ itIntegration(
     expect(res.content.length).toBeGreaterThan(0);
     expect(res.finish_reason).toBeTruthy();
     expect(res.usage?.prompt_tokens).toBeGreaterThan(0);
+  },
+  120_000,
+);
+
+itIntegration(
+  "propagates proxy to the child process and reports a dead proxy connection",
+  async () => {
+    vi.doUnmock("node:child_process");
+    vi.resetModules();
+    const { runOnce: runWithRealSpawn } = await import("../src/lib/opencode/runner.js");
+    const res = await runWithRealSpawn(
+      { model: "deepseek/deepseek-flash", prompt: "ok", timeoutMs: 90_000 },
+      { ...process.env, OPENCODE_PROXY_URL: "http://127.0.0.1:1", NO_PROXY: "" },
+    );
+
+    expect(res.error).toMatch(/connect|Unable to connect|proxy/i);
   },
   120_000,
 );

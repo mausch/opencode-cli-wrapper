@@ -5,8 +5,10 @@ import {
   getTimeoutMs,
   listModels,
   ModelNotFoundError,
+  describeProxyEnv,
   resolveModel,
   resolveOpencodeBin,
+  resolveProxyEnv,
   visibleModels,
 } from "../src/config/index.js";
 
@@ -65,5 +67,58 @@ describe("config module", () => {
   it("keeps resolveOpencodeBin default and override behavior", () => {
     expect(resolveOpencodeBin({})).toBe("opencode");
     expect(resolveOpencodeBin({ OPENCODE_BIN: "mybin" })).toBe("mybin");
+  });
+});
+
+describe("resolveProxyEnv", () => {
+  it("expands OPENCODE_PROXY_URL to HTTP_PROXY and HTTPS_PROXY only", () => {
+    expect(resolveProxyEnv({ OPENCODE_PROXY_URL: "http://proxy:8080", ALL_PROXY: "http://all:8080" })).toEqual({
+      HTTP_PROXY: "http://proxy:8080",
+      HTTPS_PROXY: "http://proxy:8080",
+      NO_PROXY: "localhost,127.0.0.1,::1",
+    });
+  });
+
+  it("normalizes lowercase scheme-specific proxy variables", () => {
+    expect(resolveProxyEnv({ http_proxy: "http://http:8080", https_proxy: "http://https:8080" })).toEqual({
+      HTTP_PROXY: "http://http:8080",
+      HTTPS_PROXY: "http://https:8080",
+      NO_PROXY: "localhost,127.0.0.1,::1",
+    });
+  });
+
+  it("uses ALL_PROXY when no scheme-specific proxy is configured", () => {
+    expect(resolveProxyEnv({ all_proxy: "http://all:8080" })).toEqual({
+      ALL_PROXY: "http://all:8080",
+      NO_PROXY: "localhost,127.0.0.1,::1",
+    });
+  });
+
+  it("defaults NO_PROXY to loopback when a proxy is configured", () => {
+    expect(resolveProxyEnv({ OPENCODE_PROXY_URL: "http://proxy:8080" }).NO_PROXY).toBe("localhost,127.0.0.1,::1");
+  });
+
+  it("returns no proxy variables when none is configured", () => {
+    expect(resolveProxyEnv({})).toEqual({});
+    expect(resolveProxyEnv({ NO_PROXY: "example.com" })).toEqual({});
+  });
+
+  it("respects an explicitly empty NO_PROXY when a proxy is configured", () => {
+    expect(resolveProxyEnv({ OPENCODE_PROXY_URL: "http://proxy:8080", NO_PROXY: "" })).toEqual({
+      HTTP_PROXY: "http://proxy:8080",
+      HTTPS_PROXY: "http://proxy:8080",
+      NO_PROXY: "",
+    });
+  });
+
+  it("gives OPENCODE_NO_PROXY precedence over NO_PROXY", () => {
+    const env = { OPENCODE_PROXY_URL: "http://proxy:8080", OPENCODE_NO_PROXY: "internal", NO_PROXY: "other" };
+    expect(resolveProxyEnv(env).NO_PROXY).toBe("internal");
+  });
+
+  it("masks credentials in describeProxyEnv", () => {
+    expect(describeProxyEnv({ OPENCODE_PROXY_URL: "http://user:pass@proxy:8080" })).toBe(
+      "HTTP_PROXY=http://***@proxy:8080 HTTPS_PROXY=http://***@proxy:8080 NO_PROXY=localhost,127.0.0.1,::1",
+    );
   });
 });

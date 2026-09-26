@@ -4,7 +4,7 @@
 
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
-import { getTimeoutMs, resolveOpencodeBin } from "../../config/index.js";
+import { buildChildEnv, getTimeoutMs, resolveOpencodeBin } from "../../config/index.js";
 
 export interface RunParams {
   model: string;
@@ -147,7 +147,11 @@ export async function runOnce(params: RunParams, env: NodeJS.ProcessEnv = proces
       resolve({ ...reduced, error });
     };
 
-    const child: ChildProcess = spawn(bin, args, { shell: false, stdio: ["pipe", "pipe", "pipe"], env });
+    const child: ChildProcess = spawn(bin, args, {
+      shell: false,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: buildChildEnv(env),
+    });
 
     timer = setTimeout(() => {
       timedOut = true;
