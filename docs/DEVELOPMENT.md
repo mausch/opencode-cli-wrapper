@@ -76,7 +76,44 @@ curl -s http://localhost:3000/v1/models
 ```
 
 ```json
-{ "object": "list", "data": [{ "id": "mimo-v2.6-flash-free", "object": "model", "owned_by": "opencode" }] }
+{ "object": "list", "data": [{ "id": "mimo-v2.6-flash-free", "object": "model", "owned_by": "opencode", "context_length": 200000, "max_model_len": 200000 }] }
+```
+
+When published in `opencode models --verbose`, each model also includes `max_output_tokens` and
+`max_input_tokens`; unavailable limit fields are omitted. `max_model_len` mirrors the model's
+context limit for vLLM-compatible metadata discovery.
+
+### Model metadata discovery plugin
+
+`GET /models.dev.json` returns the full catalog, without auth filtering, as a flat models.dev-schema
+object keyed by bare model id. For
+[`opencode-models-discovery`](https://github.com/yuhp/opencode-models-discovery), configure the
+vLLM enricher to read `max_model_len` from `/v1/models` (no separate metadata URL):
+
+```json
+"provider": {
+  "<id>": {
+    "options": {
+      "modelsDiscovery": { "enabled": true, "modelInfoFormat": "vllm" }
+    }
+  }
+}
+```
+
+To use its models.dev enricher instead, point it at the separate endpoint:
+
+```json
+"provider": {
+  "<id>": {
+    "options": {
+      "modelsDiscovery": {
+        "enabled": true,
+        "modelInfoFormat": "models.dev",
+        "modelInfoEndpoint": "http://127.0.0.1:3000/models.dev.json"
+      }
+    }
+  }
+}
 ```
 
 For authenticated requests, the API passes the header value to the spawned `opencode` process
@@ -167,11 +204,11 @@ npm run build       # emits dist/
 
 ```
 src/
-  config/index.ts              # binary resolution, catalog filtering, listModels/resolveModel
+  config/index.ts              # binary resolution, catalog filtering, listModels/resolveModel/modelsDevMetadata
   lib/opencode/runner.ts       # spawn + NDJSON event reducer -> RunResult
   lib/opencode/compose.ts      # messages[] -> single prompt (prompt-embed)
   lib/openai-format/index.ts   # buildCompletion / SSE / toOpenAIErrorBody
-  routes/models.ts             # GET /v1/models
+  routes/models.ts             # GET /v1/models and GET /models.dev.json
   routes/chat.ts               # POST /v1/chat/completions
   server.ts                    # Fastify wiring + global error mapping
 ```

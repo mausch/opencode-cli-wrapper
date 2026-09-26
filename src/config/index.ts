@@ -75,6 +75,19 @@ function preferZen(current: CatalogEntry, candidate: CatalogEntry): CatalogEntry
   return providerRank(candidate.provider) < providerRank(current.provider) ? candidate : current;
 }
 
+function dedupeById(entries: CatalogEntry[]): CatalogEntry[] {
+  const byId = new Map<string, CatalogEntry>();
+  for (const entry of entries) {
+    const current = byId.get(entry.id);
+    byId.set(entry.id, current ? preferZen(current, entry) : entry);
+  }
+  return [...byId.values()];
+}
+
+function finiteNumber(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
 export function visibleModels(entries: CatalogEntry[], auth: AuthContext): CatalogEntry[] {
   return auth.enabled ? entries : entries.filter((entry) => entry.id.endsWith("-free"));
 }
@@ -84,22 +97,67 @@ export function listModels(
   entries: CatalogEntry[],
 ): {
   object: "list";
-  data: Array<{ id: string; object: "model"; owned_by: string }>;
+  data: Array<{
+    id: string;
+    object: "model";
+    owned_by: string;
+    context_length?: number;
+    max_model_len?: number;
+    max_output_tokens?: number;
+    max_input_tokens?: number;
+  }>;
 } {
-  const byId = new Map<string, CatalogEntry>();
-  for (const entry of visibleModels(entries, auth)) {
-    const current = byId.get(entry.id);
-    byId.set(entry.id, current ? preferZen(current, entry) : entry);
-  }
-
   return {
     object: "list",
-    data: [...byId.values()].map((entry) => ({
-      id: entry.id,
-      object: "model" as const,
-      owned_by: entry.provider,
-    })),
+    data: dedupeById(visibleModels(entries, auth)).map((entry) => {
+      const data = {
+        id: entry.id,
+        object: "model" as const,
+        owned_by: entry.provider,
+      };
+      return {
+        ...data,
+        ...(finiteNumber(entry.limits?.context)
+          ? { context_length: entry.limits.context, max_model_len: entry.limits.context }
+          : {}),
+        ...(finiteNumber(entry.limits?.output)
+          ? { max_output_tokens: entry.limits.output }
+          : {}),
+        ...(finiteNumber(entry.limits?.input)
+          ? { max_input_tokens: entry.limits.input }
+          : {}),
+      };
+    }),
   };
+}
+
+export interface ModelsDevLimit {
+  readonly context?: number;
+  readonly input?: number;
+  readonly output?: number;
+}
+
+export interface ModelsDevMetadataEntry {
+  readonly id: string;
+  readonly limit?: ModelsDevLimit;
+}
+
+export function modelsDevMetadata(entries: CatalogEntry[]): Record<string, ModelsDevMetadataEntry> {
+  // A flat bare-id key makes the plugin's exact lookup deterministic; provider nesting can make
+  // its model-portion fallback ambiguous when the same short id exists under multiple providers.
+  return Object.fromEntries(
+    dedupeById(entries).map((entry) => {
+      const context = entry.limits?.context;
+      const input = entry.limits?.input;
+      const output = entry.limits?.output;
+      const limit: ModelsDevLimit = {
+        ...(finiteNumber(context) ? { context } : {}),
+        ...(finiteNumber(input) ? { input } : {}),
+        ...(finiteNumber(output) ? { output } : {}),
+      };
+      return [entry.id, { id: entry.id, ...(Object.keys(limit).length > 0 ? { limit } : {}) }];
+    }),
+  );
 }
 
 export function resolveModel(id: string, auth: AuthContext, entries: CatalogEntry[]): string {

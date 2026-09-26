@@ -53,7 +53,52 @@ curl http://localhost:3000/v1/models
 ```json
 {
   "object": "list",
-  "data": [{ "id": "mimo-v2.6-flash-free", "object": "model", "owned_by": "opencode" }]
+  "data": [{
+    "id": "mimo-v2.6-flash-free",
+    "object": "model",
+    "owned_by": "opencode",
+    "context_length": 200000,
+    "max_model_len": 200000,
+    "max_output_tokens": 32000
+  }]
+}
+```
+
+Context metadata comes from `opencode models --verbose`. Each model includes `context_length` and
+the vLLM-compatible `max_model_len` (both represent the context limit),
+`max_output_tokens`, and (when published) `max_input_tokens`; unavailable fields are omitted.
+
+### Metadata for opencode-models-discovery
+
+`GET /models.dev.json` returns the full catalog as a flat models.dev-schema object keyed by each
+bare model id. It is public and does not require Authorization. Configure
+[`opencode-models-discovery`](https://github.com/yuhp/opencode-models-discovery) with either
+enricher format:
+
+```json
+"provider": {
+  "<id>": {
+    "options": {
+      "modelsDiscovery": { "enabled": true, "modelInfoFormat": "vllm" }
+    }
+  }
+}
+```
+
+The vLLM format reads `max_model_len` from `/v1/models`; it does not use `modelInfoEndpoint`.
+For models.dev, use the separate metadata endpoint:
+
+```json
+"provider": {
+  "<id>": {
+    "options": {
+      "modelsDiscovery": {
+        "enabled": true,
+        "modelInfoFormat": "models.dev",
+        "modelInfoEndpoint": "http://127.0.0.1:3000/models.dev.json"
+      }
+    }
+  }
 }
 ```
 

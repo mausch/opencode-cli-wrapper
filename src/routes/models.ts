@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { listModels } from "../config/index.js";
+import { listModels, modelsDevMetadata } from "../config/index.js";
 import { extractAuth } from "../lib/opencode/auth.js";
 import { CatalogError, getCatalog } from "../lib/opencode/models.js";
 import { toOpenAIErrorBody } from "../lib/openai-format/index.js";
@@ -10,6 +10,17 @@ export async function modelsRoutes(app: FastifyInstance): Promise<void> {
     try {
       const entries = await getCatalog();
       reply.status(200).send(listModels(auth, entries));
+    } catch (error) {
+      if (!(error instanceof CatalogError)) throw error;
+      const mapped = toOpenAIErrorBody(error, 500);
+      reply.status(mapped.status).send(mapped.body);
+    }
+  });
+
+  app.get("/models.dev.json", async (_request, reply) => {
+    try {
+      const entries = await getCatalog();
+      reply.status(200).send(modelsDevMetadata(entries));
     } catch (error) {
       if (!(error instanceof CatalogError)) throw error;
       const mapped = toOpenAIErrorBody(error, 500);

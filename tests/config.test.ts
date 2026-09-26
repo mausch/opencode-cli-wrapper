@@ -4,6 +4,7 @@ import type { CatalogEntry } from "../src/lib/opencode/models.js";
 import {
   getTimeoutMs,
   listModels,
+  modelsDevMetadata,
   ModelNotFoundError,
   describeProxyEnv,
   resolveModel,
@@ -13,9 +14,9 @@ import {
 } from "../src/config/index.js";
 
 const entries: CatalogEntry[] = [
-  { canonical: "opencode/mimo-v2.6-flash-free", provider: "opencode", id: "mimo-v2.6-flash-free" },
-  { canonical: "opencode/space-bunny-free", provider: "opencode", id: "space-bunny-free" },
-  { canonical: "opencode/claude-opus-5", provider: "opencode", id: "claude-opus-5" },
+  { canonical: "opencode/mimo-v2.6-flash-free", provider: "opencode", id: "mimo-v2.6-flash-free", limits: { context: 200000, input: 160000, output: 32000 } },
+  { canonical: "opencode/space-bunny-free", provider: "opencode", id: "space-bunny-free", limits: null },
+  { canonical: "opencode/claude-opus-5", provider: "opencode", id: "claude-opus-5", limits: { context: 100, input: null, output: 20 } },
 ];
 
 const noAuth: AuthContext = { enabled: false, token: null };
@@ -34,11 +35,24 @@ describe("config module", () => {
     expect(listModels(withAuth, entries)).toEqual({
       object: "list",
       data: [
-        { id: "mimo-v2.6-flash-free", object: "model", owned_by: "opencode" },
+        { id: "mimo-v2.6-flash-free", object: "model", owned_by: "opencode", context_length: 200000, max_model_len: 200000, max_output_tokens: 32000, max_input_tokens: 160000 },
         { id: "space-bunny-free", object: "model", owned_by: "opencode" },
-        { id: "claude-opus-5", object: "model", owned_by: "opencode" },
+        { id: "claude-opus-5", object: "model", owned_by: "opencode", context_length: 100, max_model_len: 100, max_output_tokens: 20 },
       ],
     });
+  });
+
+  it("builds models.dev metadata with available limits", () => {
+    expect(modelsDevMetadata([entries[0]])).toEqual({
+      "mimo-v2.6-flash-free": {
+        id: "mimo-v2.6-flash-free",
+        limit: { context: 200000, input: 160000, output: 32000 },
+      },
+    });
+  });
+
+  it("omits limits when a model has no limits", () => {
+    expect(modelsDevMetadata([entries[1]])).toEqual({ "space-bunny-free": { id: "space-bunny-free" } });
   });
 
   it("resolves a visible short id to its canonical id", () => {
@@ -107,9 +121,9 @@ describe("resolveProxyEnv", () => {
 
 describe("ZEN model preference", () => {
   const dual: CatalogEntry[] = [
-    { canonical: "opencode-go/space-bunny-free", provider: "opencode-go", id: "space-bunny-free" },
-    { canonical: "opencode/space-bunny-free", provider: "opencode", id: "space-bunny-free" },
-    { canonical: "opencode/mimo-v2.6-flash-free", provider: "opencode", id: "mimo-v2.6-flash-free" },
+    { canonical: "opencode-go/space-bunny-free", provider: "opencode-go", id: "space-bunny-free", limits: null },
+    { canonical: "opencode/space-bunny-free", provider: "opencode", id: "space-bunny-free", limits: null },
+    { canonical: "opencode/mimo-v2.6-flash-free", provider: "opencode", id: "mimo-v2.6-flash-free", limits: null },
   ];
 
   it("resolves a short id shared by ZEN and GO to the ZEN provider", () => {
@@ -127,6 +141,19 @@ describe("ZEN model preference", () => {
         { id: "space-bunny-free", object: "model", owned_by: "opencode" },
         { id: "mimo-v2.6-flash-free", object: "model", owned_by: "opencode" },
       ],
+    });
+  });
+
+  it("uses the ZEN entry for duplicate models.dev ids", () => {
+    const dualWithLimits: CatalogEntry[] = [
+      { ...dual[0], limits: { context: 10, input: 8, output: 2 } },
+      { ...dual[1], limits: { context: 20, input: 16, output: 4 } },
+    ];
+    expect(modelsDevMetadata(dualWithLimits)).toEqual({
+      "space-bunny-free": {
+        id: "space-bunny-free",
+        limit: { context: 20, input: 16, output: 4 },
+      },
     });
   });
 });

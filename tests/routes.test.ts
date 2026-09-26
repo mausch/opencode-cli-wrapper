@@ -3,9 +3,9 @@ import type { FastifyInstance } from "fastify";
 import { buildServer } from "../src/server.js";
 
 const catalogFixture = [
-  { canonical: "opencode/mimo-v2.6-flash-free", provider: "opencode", id: "mimo-v2.6-flash-free" },
-  { canonical: "opencode/space-bunny-free", provider: "opencode", id: "space-bunny-free" },
-  { canonical: "opencode/claude-opus-5", provider: "opencode", id: "claude-opus-5" },
+  { canonical: "opencode/mimo-v2.6-flash-free", provider: "opencode", id: "mimo-v2.6-flash-free", limits: { context: 200000, input: 160000, output: 32000 } },
+  { canonical: "opencode/space-bunny-free", provider: "opencode", id: "space-bunny-free", limits: null },
+  { canonical: "opencode/claude-opus-5", provider: "opencode", id: "claude-opus-5", limits: { context: 100, input: null, output: 20 } },
 ];
 
 const { getCatalogMock, useRealCatalog } = vi.hoisted(() => ({
@@ -43,10 +43,34 @@ describe("Routes (P6/P7)", () => {
     expect(res.json()).toEqual({
       object: "list",
       data: [
-        { id: "mimo-v2.6-flash-free", object: "model", owned_by: "opencode" },
+        { id: "mimo-v2.6-flash-free", object: "model", owned_by: "opencode", context_length: 200000, max_model_len: 200000, max_output_tokens: 32000, max_input_tokens: 160000 },
         { id: "space-bunny-free", object: "model", owned_by: "opencode" },
       ],
     });
+  });
+
+  it("GET /models.dev.json returns the full flat catalog without Authorization", async () => {
+    const res = await app.inject({ method: "GET", url: "/models.dev.json" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      "mimo-v2.6-flash-free": {
+        id: "mimo-v2.6-flash-free",
+        limit: { context: 200000, input: 160000, output: 32000 },
+      },
+      "space-bunny-free": { id: "space-bunny-free" },
+      "claude-opus-5": { id: "claude-opus-5", limit: { context: 100, output: 20 } },
+    });
+  });
+
+  it("GET /models.dev.json maps catalog failure to an OpenAI 500 error", async () => {
+    const { CatalogError } = await import("../src/lib/opencode/models.js");
+    getCatalogMock.mockRejectedValueOnce(new CatalogError("catalog unavailable"));
+
+    const res = await app.inject({ method: "GET", url: "/models.dev.json" });
+
+    expect(res.statusCode).toBe(500);
+    expect(res.json()).toMatchObject({ error: { type: "server_error", code: "opencode_error" } });
   });
 
   it("GET /v1/models returns all catalog ids with Authorization", async () => {
