@@ -139,21 +139,22 @@ const itIntegration = process.env.INTEGRATION === "1" ? it : it.skip;
 itIntegration(
   "runs a free model end-to-end through the CLI",
   async () => {
-    const params: RunParams = {
-      model: "deepseek/deepseek-flash",
-      prompt: "Responda apenas com a palavra: ok",
-      timeoutMs: 90_000,
-    };
-
-    const res: RunResult = await runOnce(params, {});
+    vi.doUnmock("node:child_process");
+    vi.resetModules();
+    const { runOnce: runWithRealSpawn } = await import("../src/lib/opencode/runner.js");
+    const res: RunResult = await runWithRealSpawn(
+      {
+        model: "opencode/mimo-v2.6-flash-free",
+        prompt: "Responda apenas com a palavra: ok",
+        timeoutMs: 90_000,
+      },
+      {},
+    );
 
     expect(res.error).toBeNull();
     expect(res.content.length).toBeGreaterThan(0);
     expect(res.finish_reason).toBeTruthy();
-    expect(res.usage).not.toBeNull();
-    if (res.usage) {
-      expect(res.usage.prompt_tokens).toBeGreaterThan(0);
-    }
+    expect(res.usage?.prompt_tokens).toBeGreaterThan(0);
   },
   120_000,
 );

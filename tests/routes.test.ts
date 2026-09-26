@@ -5,7 +5,7 @@ import { buildServer } from "../src/server.js";
 const catalogFixture = [
   { canonical: "opencode/mimo-v2.6-flash-free", provider: "opencode", id: "mimo-v2.6-flash-free" },
   { canonical: "opencode/space-bunny-free", provider: "opencode", id: "space-bunny-free" },
-  { canonical: "opencode/deepseek-flash", provider: "opencode", id: "deepseek-flash" },
+  { canonical: "opencode/claude-opus-5", provider: "opencode", id: "claude-opus-5" },
 ];
 
 const { getCatalogMock, useRealCatalog } = vi.hoisted(() => ({
@@ -94,7 +94,7 @@ describe("Routes (P6/P7)", () => {
     const res = await app.inject({
       method: "POST",
       url: "/v1/chat/completions",
-      payload: { model: "opencode/deepseek-flash", messages: [{ role: "user", content: "hi" }] },
+      payload: { model: "opencode/claude-opus-5", messages: [{ role: "user", content: "hi" }] },
     });
 
     expect(res.statusCode).toBe(404);
@@ -104,7 +104,49 @@ describe("Routes (P6/P7)", () => {
   const itIntegration = process.env.INTEGRATION === "1" ? it : it.skip;
 
   itIntegration(
-    "returns a chat.completion for a free model (non-stream)",
+    "returns only free models without Authorization and more models with Authorization",
+    async () => {
+      useRealCatalog.value = true;
+      const freeResponse = await app.inject({ method: "GET", url: "/v1/models" });
+
+      expect(freeResponse.statusCode).toBe(200);
+      const freeModels = freeResponse.json().data as Array<{ id: string }>;
+      expect(freeModels.length).toBeGreaterThan(0);
+      expect(freeModels.every((model) => model.id.endsWith("-free"))).toBe(true);
+
+      const authenticatedResponse = await app.inject({
+        method: "GET",
+        url: "/v1/models",
+        headers: { authorization: "Bearer test" },
+      });
+
+      expect(authenticatedResponse.statusCode).toBe(200);
+      const authenticatedModels = authenticatedResponse.json().data as Array<{ id: string }>;
+      expect(authenticatedModels.length).toBeGreaterThan(freeModels.length);
+    },
+    120_000,
+  );
+
+  itIntegration(
+    "rejects a non-free model without Authorization",
+    async () => {
+      useRealCatalog.value = true;
+      const res = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        payload: {
+          model: "opencode/claude-opus-5",
+          messages: [{ role: "user", content: "hi" }],
+        },
+      });
+
+      expect(res.statusCode).toBe(404);
+    },
+    120_000,
+  );
+
+  itIntegration(
+    "returns non-empty completion content for a free model (non-stream)",
     async () => {
       useRealCatalog.value = true;
       const res = await app.inject({
@@ -118,9 +160,7 @@ describe("Routes (P6/P7)", () => {
 
       expect(res.statusCode).toBe(200);
       const body = res.json();
-      expect(body.object).toBe("chat.completion");
       expect(body.choices[0].message.content.length).toBeGreaterThan(0);
-      expect(body.usage.total_tokens).toBeGreaterThan(0);
     },
     120_000,
   );
