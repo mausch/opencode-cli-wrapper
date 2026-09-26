@@ -3,7 +3,7 @@ import { PassThrough } from "node:stream";
 import type { ChildProcess } from "node:child_process";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { spawn } from "node:child_process";
-import { CatalogError, getCatalog, parseModelsOutput, resetCatalogCache } from "../src/lib/opencode/models.js";
+import { CatalogError, getCatalog, parseModelsOutput, parseVerboseModelsOutput, resetCatalogCache } from "../src/lib/opencode/models.js";
 
 vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
 
@@ -62,10 +62,46 @@ describe("parseModelsOutput", () => {
     const entries = parseModelsOutput(FIXTURE_MODELS_STDOUT);
 
     expect(entries).toEqual([
-      { canonical: "anthropic/claude-sonnet", provider: "anthropic", id: "claude-sonnet" },
-      { canonical: "opencode-go/space-bunny-free", provider: "opencode-go", id: "space-bunny-free" },
-      { canonical: "opencode/mimo-v2.6-flash-free", provider: "opencode", id: "mimo-v2.6-flash-free" },
-      { canonical: "opencode/space-bunny-free", provider: "opencode", id: "space-bunny-free" },
+      { canonical: "anthropic/claude-sonnet", provider: "anthropic", id: "claude-sonnet", limits: null },
+      { canonical: "opencode-go/space-bunny-free", provider: "opencode-go", id: "space-bunny-free", limits: null },
+      { canonical: "opencode/mimo-v2.6-flash-free", provider: "opencode", id: "mimo-v2.6-flash-free", limits: null },
+      { canonical: "opencode/space-bunny-free", provider: "opencode", id: "space-bunny-free", limits: null },
+    ]);
+  });
+});
+
+describe("parseVerboseModelsOutput", () => {
+  it("parses model limits from header and JSON blocks", () => {
+    expect(parseVerboseModelsOutput('opencode/big-pickle\n{\n  "id": "big-pickle",\n  "providerID": "opencode",\n  "limit": { "context": 200000, "input": 160000, "output": 32000 }\n}')).toEqual([
+      {
+        canonical: "opencode/big-pickle",
+        provider: "opencode",
+        id: "big-pickle",
+        limits: { context: 200000, input: 160000, output: 32000 },
+      },
+    ]);
+  });
+
+  it("uses null for a missing input limit and handles slashes in the JSON id", () => {
+    expect(parseVerboseModelsOutput('deepinfra/tencent/Hy3\n{\n  "id": "tencent/Hy3",\n  "providerID": "deepinfra",\n  "limit": { "context": 10, "output": 4 }\n}')).toEqual([
+      {
+        canonical: "deepinfra/tencent/Hy3",
+        provider: "deepinfra",
+        id: "tencent/Hy3",
+        limits: { context: 10, input: null, output: 4 },
+      },
+    ]);
+  });
+
+  it("accepts plain model lines with null limits", () => {
+    expect(parseVerboseModelsOutput("opencode/one\nmalformed\nprovider/too/many/slashes")).toEqual([
+      { canonical: "opencode/one", provider: "opencode", id: "one", limits: null },
+    ]);
+  });
+
+  it("skips malformed blocks and deduplicates with the last entry before sorting", () => {
+    expect(parseVerboseModelsOutput('z/first\na/b/c\nz/first\n{\n  "id": "first",\n  "providerID": "z",\n  "limit": { "context": 9 }\n}\na/b/c\n{ bad json\n')).toEqual([
+      { canonical: "z/first", provider: "z", id: "first", limits: { context: 9, input: null, output: null } },
     ]);
   });
 });
@@ -85,7 +121,7 @@ describe("getCatalog", () => {
     await getCatalog(env);
 
     expect(spawnMock).toHaveBeenCalledTimes(1);
-    expect(spawnMock).toHaveBeenCalledWith("/custom/opencode", ["models"], {
+    expect(spawnMock).toHaveBeenCalledWith("/custom/opencode", ["models", "--verbose"], {
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
       env,
@@ -98,6 +134,29 @@ describe("getCatalog", () => {
     const catalogs = await Promise.all([getCatalog({}), getCatalog({})]);
 
     expect(catalogs[0]).toEqual(catalogs[1]);
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to plain models only when verbose mode exits unsuccessfully", async () => {
+    spawnMock.mockImplementationOnce(() => {
+      const child = new EventEmitter() as ChildProcess;
+      Object.assign(child, { stdout: new PassThrough(), stderr: new PassThrough(), stdin: null, exitCode: 2 });
+      queueMicrotask(() => child.emit("close", 2));
+      return child;
+    });
+    mockSpawnOutput(FIXTURE_MODELS_STDOUT);
+
+    const catalog = await getCatalog({});
+
+    expect(catalog[0]?.limits).toBeNull();
+    expect(spawnMock).toHaveBeenNthCalledWith(1, "opencode", ["models", "--verbose"], expect.any(Object));
+    expect(spawnMock).toHaveBeenNthCalledWith(2, "opencode", ["models"], expect.any(Object));
+  });
+
+  it("does not fall back when spawning verbose mode emits an error", async () => {
+    mockSpawnError("missing binary");
+
+    await expect(getCatalog({})).rejects.toBeInstanceOf(CatalogError);
     expect(spawnMock).toHaveBeenCalledTimes(1);
   });
 
